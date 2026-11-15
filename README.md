@@ -10,7 +10,7 @@ Dyballa L., Hoseini M.S., Dadarlat M.C., Zucker S.W., Stryker M.P., **Flow stimu
 
 ## Installation
 
-The script requires Python 3.10 or later with numpy, scipy and pillow. It runs on Linux and macOS; Windows is not currently supported.
+The script requires Python 3.10 or later with numpy, scipy and pillow. It runs on Linux, macOS, and Windows.
 
 With [pixi](https://pixi.sh), from the repository folder:
 

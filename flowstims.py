@@ -41,7 +41,7 @@ RANDOM_SEED = 19             # None for a random seed (the value used is logged)
 
 # --- All stimuli -------------------------------------------------------------
 TRIAL_LEN_SEC = 1.25         # stimulus presentation
-PRE_STIM_LEN_SEC = 1.0       # pre-stimulus interval (at least 1 s recommended for flows)
+PRE_STIM_LEN_SEC = 0.1       # pre-stimulus interval (at least 1 s recommended for flows)
 POST_STIM_LEN_SEC = 0.25     # post-stimulus interval
 N_TRIAL_BLOCKS = 1           # repetitions of every stimulus/direction combination
 N_DIRS = 8                   # directions, evenly spaced around 360 deg
@@ -78,7 +78,7 @@ FIX_RAND_STATE = False       # True: identical flow field and initial positions 
 SAME_FLOWS = True            # True: all flow variations share flow fields and initial positions
 
 # --- Gratings ----------------------------------------------------------------
-USE_GRATINGS = True
+USE_GRATINGS = False
 GRAT_WIDTHS_DEG = [10, 5, 2.5, 1.25, 0.625, 0.301]  # bar width (deg) = 1/(2*spatial freq.)
 GRAT_FG_VALS = [68]
 GRAT_BG_VALS = [188]
@@ -495,6 +495,9 @@ DIRS = [round(i * 360. / N_DIRS) + DIR_DEG_SHIFT for i in range(N_DIRS)]
 STIMS = []        # set in main(); inherited by worker processes
 MASKS = {}
 
+def init_worker(stims):
+   global STIMS
+   STIMS = stims
 
 def render_trial(args):
     trial_no, (s, di, block) = args
@@ -562,7 +565,7 @@ def main():
     n = len(trials)
     print("%d stimuli, %d trials, %d frames -> %s" % (len(STIMS), n, n * TRIAL_FRAMES, OUTPUT_DIR))
     t0 = time.time()
-    with mp.get_context("fork").Pool(N_WORKERS) as pool:
+   with mp.get_context("spawn").Pool(N_WORKERS, initializer=init_worker, initargs=(STIMS,)) as pool:
         for k, _ in enumerate(pool.imap_unordered(render_trial, enumerate(trials)), 1):
             el = time.time() - t0
             print("\r%d/%d trials  (%.0f s elapsed, %.0f s left)" % (k, n, el, el / k * (n - k)),
