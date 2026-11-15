@@ -76,3 +76,7 @@ Beyond the change to offline rendering, several behaviours differ from the Proce
 - Force and timing parameters are defined in seconds (`MAX_FORCE_RATE`, `SEP_INTERVAL_SEC`) and scale with dot size, so flow dynamics are the same across dot sizes and frame rates.
 - All elements are updated simultaneously in each frame.
 - The automatic background level (`DOT_BG_VALS = -1`) is rounded rather than truncated, and the script stops with an error if it falls outside [0, 255].
+
+## License
+
+This program is derived from [FlowStims](https://github.com/zuckerlab/FlowStims) and, like the original, is distributed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.
