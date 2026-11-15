@@ -14,6 +14,7 @@ import sys
 import time
 import math
 import datetime
+import io
 import multiprocessing as mp
 
 import numpy as np
@@ -27,7 +28,13 @@ from PIL import Image
 
 # --- Output ------------------------------------------------------------------
 OUTPUT_DIR = "movieframes"   # frames and logs are written here
-PNG_COMPRESSION = 1          # 0 (fastest, largest files) to 9 (slowest, smallest)
+# PNG compression level, 0-9. Compression is lossless at every level: the frames are
+# identical, and only the file size and saving time differ. Level 0 stores frames
+# uncompressed (about 2 MB each at 1824x1140). Level 1 already gives nearly the smallest
+# files for most stimuli (e.g. 0.1-0.3 MB for flows with dots of 2 deg or more) and is fast.
+# Level 6 reduces fine gratings by about half more, at roughly twice the saving time.
+# Level 9 gains little more and is up to 20 times slower than level 1.
+PNG_COMPRESSION = 1
 N_WORKERS = os.cpu_count()   # trials are rendered in parallel
 
 # --- Frame and geometry ------------------------------------------------------
@@ -41,8 +48,8 @@ RANDOM_SEED = 19             # None for a random seed (the value used is logged)
 
 # --- All stimuli -------------------------------------------------------------
 TRIAL_LEN_SEC = 1.25         # stimulus presentation
-PRE_STIM_LEN_SEC = 0.1       # pre-stimulus interval (at least 1 s recommended for flows)
-POST_STIM_LEN_SEC = 0.25     # post-stimulus interval
+PRE_STIM_LEN_SEC = 0.375       # pre-stimulus interval (uniform frames at the interstimulus level)
+POST_STIM_LEN_SEC = 0.375     # post-stimulus interval
 N_TRIAL_BLOCKS = 1           # repetitions of every stimulus/direction combination
 N_DIRS = 8                   # directions, evenly spaced around 360 deg
 DIR_DEG_SHIFT = 0            # added to every direction (deg)
@@ -59,6 +66,7 @@ MASK_BORDER_PCT = .15        # width of the smooth edge, as a fraction of the di
 
 # --- Flows -------------------------------------------------------------------
 USE_FLOWS = True
+WARMUP_SEC = 1.5             # simulated (not saved) before each trial, so that elements lose the initial lattice arrangement
 N_DOTS = [3]                 # dots per flow element
 DOT_FG_VALS = [8, 248, 8, 248]       # gray level of the dots [0-255]
 DOT_BG_VALS = [128, 128, -1, -1]     # background; -1 for mean luminance 128
@@ -355,11 +363,15 @@ class Flow:
         self.wrap()
         self.t += 1
 
+    def warmup(self, n_frames):
+        """Run the simulation without drawing, so that the elements lose the initial lattice arrangement."""
+        self.forces = self.pre_forces
+        for _ in range(n_frames):
+            self.step(self.forces)
+
     def frame(self, period):
-        """Advance one frame and return the gray levels. period: 'PRE', 'TRIAL' or 'POST'."""
-        if period == "PRE":
-            self.forces = self.pre_forces
-        elif period == "TRIAL":
+        """Advance one frame and return the gray levels. period: 'TRIAL' or 'POST'."""
+        if period == "TRIAL":
             self.forces = self.wiggle
         self.step(self.forces)
         fade = 1. / max(1, N_FADE_FRAMES)
@@ -406,6 +418,9 @@ class Grating:
         self.phase = block / N_TRIAL_BLOCKS if GRAT_PHASE_STEPS else 0.
         self.t = None   # frames since trial onset
         self.alpha = 0.
+
+    def warmup(self, n_frames):
+        pass
 
     def frame(self, period):
         if period == "TRIAL" and self.t is None:
@@ -486,37 +501,64 @@ def build_trials(rng, n_stims):
 # RENDERING
 # =============================================================================
 
+WARMUP_LEN = round(WARMUP_SEC * FRAME_RATE)
 PRE_LEN = round(PRE_STIM_LEN_SEC * FRAME_RATE)
 TRIAL_LEN = round(TRIAL_LEN_SEC * FRAME_RATE)
 POST_LEN = round(POST_STIM_LEN_SEC * FRAME_RATE)
 TRIAL_FRAMES = PRE_LEN + TRIAL_LEN + POST_LEN
 DIRS = [round(i * 360. / N_DIRS) + DIR_DEG_SHIFT for i in range(N_DIRS)]
 
-STIMS = []        # set in main(); inherited by worker processes
+STIMS = []        # set in main(), and in each worker process by init_worker()
 MASKS = {}
 
+
 def init_worker(stims):
-   global STIMS
-   STIMS = stims
+    global STIMS
+    STIMS = stims
+
+
+BLANKS = {}       # encoded uniform frames, by (gray level, photodiode square on)
+
+
+def save_blank(path, level, trial):
+    """Save a uniform frame of the given gray level, encoding each distinct frame only once."""
+    key = (level, trial)
+    if key not in BLANKS:
+        img = np.full((H, W), level, np.uint8)
+        if PHOTO_SQ_SIDE_PX > 0:
+            img[-PHOTO_SQ_SIDE_PX:, -PHOTO_SQ_SIDE_PX:] = 255 if trial else 0
+        buf = io.BytesIO()
+        Image.fromarray(img, "L").save(buf, format="PNG", compress_level=PNG_COMPRESSION)
+        BLANKS[key] = buf.getvalue()
+    with open(path, "wb") as f:
+        f.write(BLANKS[key])
+
 
 def render_trial(args):
     trial_no, (s, di, block) = args
     stim = STIMS[s]
     stim.init(DIRS[di], di, block)
+    stim.warmup(WARMUP_LEN)
     alpha_mask = None
     if stim.mask is not None:
-        alpha_mask = MASKS.setdefault(stim.mask, make_mask(*stim.mask))
+        if stim.mask not in MASKS:
+            MASKS[stim.mask] = make_mask(*stim.mask)
+        alpha_mask = MASKS[stim.mask]
     first = trial_no * TRIAL_FRAMES + 1
     periods = ["PRE"] * PRE_LEN + ["TRIAL"] * TRIAL_LEN + ["POST"] * POST_LEN
     for f, period in enumerate(periods):
+        path = os.path.join(OUTPUT_DIR, "%06d.png" % (first + f))
+        # inter-trial intervals are uniform, except while the stimulus fades out
+        if period == "PRE" or (period == "POST" and stim.alpha == 0):
+            save_blank(path, stim.inter, False)
+            continue
         img = stim.frame(period)
         if alpha_mask is not None:
             img = stim.inter + alpha_mask * (img - stim.inter)
         img = np.clip(np.rint(img), 0, 255).astype(np.uint8)
         if PHOTO_SQ_SIDE_PX > 0:
             img[-PHOTO_SQ_SIDE_PX:, -PHOTO_SQ_SIDE_PX:] = 255 if period == "TRIAL" else 0
-        Image.fromarray(img, "L").save(os.path.join(OUTPUT_DIR, "%06d.png" % (first + f)),
-                                       compress_level=PNG_COMPRESSION)
+        Image.fromarray(img, "L").save(path, compress_level=PNG_COMPRESSION)
     return trial_no
 
 
@@ -565,7 +607,8 @@ def main():
     n = len(trials)
     print("%d stimuli, %d trials, %d frames -> %s" % (len(STIMS), n, n * TRIAL_FRAMES, OUTPUT_DIR))
     t0 = time.time()
-   with mp.get_context("spawn").Pool(N_WORKERS, initializer=init_worker, initargs=(STIMS,)) as pool:
+    # "spawn" starts each worker as a fresh process (available on Linux, macOS and Windows)
+    with mp.get_context("spawn").Pool(N_WORKERS, initializer=init_worker, initargs=(STIMS,)) as pool:
         for k, _ in enumerate(pool.imap_unordered(render_trial, enumerate(trials)), 1):
             el = time.time() - t0
             print("\r%d/%d trials  (%.0f s elapsed, %.0f s left)" % (k, n, el, el / k * (n - k)),

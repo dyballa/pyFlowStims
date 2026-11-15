@@ -46,7 +46,7 @@ Parameters are grouped in the script as follows; each one is described by a comm
 - **Output:** output folder, PNG compression level, number of parallel workers.
 - **Frame and geometry:** frame size in pixels, frame rate, pixels per degree of visual angle (set directly, or computed from the screen width and viewing distance), random seed.
 - **All stimuli:** durations of the pre-stimulus, trial and post-stimulus periods; number of trial blocks; number of directions; temporal frequencies; fade-in/out frames; photodiode square; circular aperture.
-- **Flows:** number of dots per element, gray levels, dot diameters and spacings, equal-area option, rigid translation, flow-field and separation-force settings, randomization options.
+- **Flows:** warm-up interval (simulated before each trial but not saved), number of dots per element, gray levels, dot diameters and spacings, equal-area option, rigid translation, flow-field and separation-force settings, randomization options.
 - **Gratings:** bar widths, gray levels, phase stepping across trial blocks.
 
 Parameters that take lists (e.g. `TEMP_FREQS`, `DOT_DIAMS_DEG`) produce one stimulus variation per value, and all variations are combined. Lists that belong together must have the same length: `DOT_FG_VALS`, `DOT_BG_VALS` and `DOT_INTER_VALS`; `DOT_DIAMS_DEG`, `DOT_SPACINGS` and `DOT_SPAT_FREQS`; `GRAT_FG_VALS`, `GRAT_BG_VALS` and `GRAT_INTER_VALS`; `MASK_HORZ_POS` and `MASK_VERT_POS`.
@@ -68,7 +68,7 @@ All files are written to `OUTPUT_DIR`:
 
 ## Improvements on the original FlowStims
 
-Beyond the change to offline rendering, several behaviours differ from the Processing version (2.2):
+Beyond the change to offline rendering, several behaviors differ from the Processing version (2.2):
 
 - Sizes (dot diameters, spacings, bar widths) are not rounded to whole pixels, and dots and gratings are antialiased with the correct drawn area at all sizes.
 - Multi-dot flow elements are placed on a lattice aligned with their direction of motion, with equal gaps between elements along and across the element axis. With `EQUAL_AREA = True` the element density is the same as for single-dot flows; with `EQUAL_AREA = False` the gaps are the same as for single-dot flows.
